@@ -51,8 +51,14 @@ using namespace visualization_msgs;
 #endif
 
 K4AROSDevice::K4AROSDevice(const NodeHandle& n, const NodeHandle& p)
-  : k4a_device_(nullptr),
+  : 
+#if !defined(NO_DEVICE)  
+    k4a_device_(nullptr),
     k4a_playback_handle_(nullptr),
+#else
+    syncImage_(ImagePolicy(10), subIr_, subDepth_),
+    isCameraInfoSetup_(false),
+#endif
 // clang-format off
 #if defined(K4A_BODY_TRACKING)
     k4abt_tracker_(nullptr),
@@ -74,6 +80,7 @@ K4AROSDevice::K4AROSDevice(const NodeHandle& n, const NodeHandle& p)
   ROS_PARAM_LIST
 #undef LIST_ENTRY
 
+#if !defined(NO_DEVICE)  
   if (!params_.recording_file.empty())
   {
     ROS_INFO("Node is started in playback mode");
@@ -298,19 +305,46 @@ K4AROSDevice::K4AROSDevice(const NodeHandle& n, const NodeHandle& p)
 
   ci_mngr_rgb_ = std::make_shared<camera_info_manager::CameraInfoManager>(node_rgb_, calibration_file_name_rgb, calibration_url_rgb);
   ci_mngr_ir_ = std::make_shared<camera_info_manager::CameraInfoManager>(node_ir_, calibration_file_name_ir, calibration_url_ir);
+#else
+  params_.body_tracking_enabled = true; //temporary, the time to use correctly the parameters from the launch file
+
+  //NO_DEVICE, so create subscribers to get depth, IR and camera_info ROS messages
+  node_.param("IrTopic", IrTopic_, string(""));
+	node_.param("depthTopic", depthTopic_, string(""));
+
+	node_.getParam("IrTopic", IrTopic_);
+	node_.getParam("depthTopic", depthTopic_);
+
+  std:: cout << "subscribing to topics: " << IrTopic_ << " " << depthTopic_ << std::endl;
+
+	subIr_.subscribe(image_transport_, IrTopic_+"/image_raw", 1, image_transport::TransportHints("compressed"));//, image_transport::TransportHints("compressedDepth"));
+  subDepth_.subscribe(image_transport_, depthTopic_+"/image_raw", 1, image_transport::TransportHints("compressed"));
+  
+  //TODO GC
+  subDepthCameraInfoTopic_.subscribe(node_, depthTopic_+"/camera_info", 1);
+  subDepthCameraInfoTopic_.registerCallback(boost::bind(&K4AROSDevice::callbackCameraInfo, this, _1));
+  
+  //+ maybe one more for rgb camera_info because of image_tf_publisher_
+
+	syncImage_.registerCallback(boost::bind(&K4AROSDevice::callbackIrAndDepth, this, _1, _2));
+
+#endif
 
 #if defined(K4A_BODY_TRACKING)
+  std::cout << "body tracking : " << params_.body_tracking_enabled << std::endl;
   if (params_.body_tracking_enabled) {    
     tfListener = new tf2_ros::TransformListener(tfBuffer);
     body_marker_publisher_ = node_.advertise<MarkerArray>("body_tracking_data", 1);
 
     body_index_map_publisher_ = image_transport_.advertise("body_index_map/image_raw", 1);
 
+#if !defined(NO_DEVICE) //temporary
     image_subscriber_ = image_transport_.subscribeCamera("rgb/image_raw", 1, &K4AROSDevice::imageCallback, this);
+#endif
     image_tf_publisher_ = image_transport_.advertise("image_tf", 1); 
   
   }
-#endif
+#endif  
 }
 
 K4AROSDevice::~K4AROSDevice()
@@ -325,6 +359,7 @@ K4AROSDevice::~K4AROSDevice()
   ROS_INFO("Body publisher thread joined");
 #endif
 
+#if !defined(NO_DEVICE)  
   // Join the publisher thread
   ROS_INFO("Joining camera publisher thread");
   frame_publisher_thread_.join();
@@ -342,6 +377,7 @@ K4AROSDevice::~K4AROSDevice()
   {
     k4a_playback_handle_.close();
   }
+#endif
 
 #if defined(K4A_BODY_TRACKING)
   if (k4abt_tracker_)
@@ -351,6 +387,7 @@ K4AROSDevice::~K4AROSDevice()
 #endif
 }
 
+#if !defined(NO_DEVICE)
 k4a_result_t K4AROSDevice::startCameras()
 {
   k4a_device_configuration_t k4a_configuration = K4A_DEVICE_CONFIG_INIT_DISABLE_ALL;
@@ -374,6 +411,18 @@ k4a_result_t K4AROSDevice::startCameras()
     // initialize the class which will take care of device calibration information from the playback_handle
     calibration_data_.initialize(k4a_playback_handle_, params_);
   }
+#else
+  //NO_DEVICE
+  //get calibration_data_ for the below call to create (or better move this in the camera_info callback)
+  //declare the callback to camera info here
+k4a_result_t K4AROSDevice::callbackCameraInfo(const sensor_msgs::CameraInfoConstPtr & depth_camera_info)
+{
+  if(!isCameraInfoSetup_)
+  {
+    calibration_data_.setFromDepthCamera(*depth_camera_info);
+
+    calibration_data_.k4a_calibration_.depth_mode = K4A_DEPTH_MODE_WFOV_2X2BINNED; // how to get this automatically?
+#endif
 
 #if defined(K4A_BODY_TRACKING)
   // When calibration is initialized the body tracker can be created with the device calibration
@@ -384,6 +433,7 @@ k4a_result_t K4AROSDevice::startCameras()
   }
 #endif
 
+#if !defined(NO_DEVICE)  
   if (k4a_device_)
   {
     ROS_INFO_STREAM("STARTING CAMERAS");
@@ -395,21 +445,31 @@ k4a_result_t K4AROSDevice::startCameras()
   // would lag the value of ros::Time::now() by at least 0.5 secs which is much larger than
   // the real transmission delay as can be observed using the rqt_plot tool.
   // start_time_ = ros::Time::now();
-
+#endif
   // Prevent the worker thread from exiting immediately
   running_ = true;
 
-  // Start the thread that will poll the cameras and publish frames
-  frame_publisher_thread_ = thread(&K4AROSDevice::framePublisherThread, this);
 #if defined(K4A_BODY_TRACKING)
   body_publisher_thread_ = thread(&K4AROSDevice::bodyPublisherThread, this);
+#endif
+
+#if !defined(NO_DEVICE)  
+  // Start the thread that will poll the cameras and publish frames
+  frame_publisher_thread_ = thread(&K4AROSDevice::framePublisherThread, this);
+#else
+
+  const std::lock_guard<std::mutex> lock(mutex_);
+  isCameraInfoSetup_ = true;
+  }
 #endif
 
   return K4A_RESULT_SUCCEEDED;
 }
 
+#if !defined(NO_DEVICE)  
 k4a_result_t K4AROSDevice::startImu()
 {
+
   if (k4a_device_)
   {
     ROS_INFO_STREAM("STARTING IMU");
@@ -424,6 +484,7 @@ k4a_result_t K4AROSDevice::startImu()
 
 void K4AROSDevice::stopCameras()
 {
+
   if (k4a_device_)
   {
     // Stop the K4A SDK
@@ -431,14 +492,17 @@ void K4AROSDevice::stopCameras()
     k4a_device_.stop_cameras();
     ROS_INFO("K4A device stopped");
   }
+
 }
 
 void K4AROSDevice::stopImu()
 {
+
   if (k4a_device_)
   {
     k4a_device_.stop_imu();
   }
+
 }
 
 k4a_result_t K4AROSDevice::getDepthFrame(const k4a::capture& capture, sensor_msgs::ImagePtr& depth_image,
@@ -788,6 +852,72 @@ k4a_result_t K4AROSDevice::getImuFrame(const k4a_imu_sample_t& sample, sensor_ms
   return K4A_RESULT_SUCCEEDED;
 }
 
+#else
+
+//input: depth_image
+//output: k4a_depth_frame
+k4a_result_t K4AROSDevice::renderROSToDepth(const sensor_msgs::ImageConstPtr& depth_image, k4a::image& k4a_depth_frame)
+{
+  //TODO: test the input encoding to something else than 16UC1 and convert accordingly (see renderDepthToROS for the reverse operation)
+  if(depth_image->encoding != "16UC1")
+  {
+    ROS_ERROR_STREAM("Invalid depth encoding: " << depth_image->encoding);
+    return K4A_RESULT_FAILED;
+  }
+
+  depth_frame_buffer = cv_bridge::toCvCopy(*depth_image, sensor_msgs::image_encodings::TYPE_16UC1); //copy
+
+  k4a_depth_frame = k4a::image::create_from_buffer(K4A_IMAGE_FORMAT_DEPTH16, 
+                                                  depth_frame_buffer->image.cols, 
+                                                  depth_frame_buffer->image.rows, 
+                                                  depth_frame_buffer->image.step, 
+                                                  depth_frame_buffer->image.data, 
+                                                  depth_frame_buffer->image.step*depth_frame_buffer->image.rows, 
+                                                  nullptr, nullptr); //no copy
+
+  return K4A_RESULT_SUCCEEDED;
+}
+
+//input: ir_image
+//output: k4a_ir_frame
+k4a_result_t K4AROSDevice::renderROSToIr(const sensor_msgs::ImageConstPtr& ir_image, k4a::image& k4a_ir_frame)
+{
+  //TODO: test the input encoding to something else than 16UC1 and convert accordingly (see renderIrToROS for the reverse operation)
+  if(ir_image->encoding != "mono16")
+  {
+    ROS_ERROR_STREAM("Invalid ir encoding: " << ir_image->encoding);
+    return K4A_RESULT_FAILED;
+  }
+
+  //sensor_msgs::Image ir2 = *ir_image;
+
+  //ir2.encoding = "8UC1";
+
+  //ir2.step *= 2;
+  //std::cout << ir2.data.size() << std::endl;
+
+//std::cout << "before copy2" << std::endl;
+  ir_frame_buffer = cv_bridge::toCvCopy(ir_image, sensor_msgs::image_encodings::TYPE_16UC1); //copy
+  //cv::imwrite("ir_frame_buffer.png", ir_frame_buffer->image);
+//std::cout << "after copy2" << std::endl;
+//std::cout << "ir_frame_buffer details: " << ir_frame_buffer->image.cols << " " <<
+ //                                               ir_frame_buffer->image.rows << " " <<
+ //                                               ir_frame_buffer->image.step << " " <<
+ //                                               ir_frame_buffer->image.step*ir_frame_buffer->image.rows << std::endl;
+  k4a_ir_frame = k4a::image::create_from_buffer(K4A_IMAGE_FORMAT_DEPTH16, 
+                                                ir_frame_buffer->image.cols, 
+                                                ir_frame_buffer->image.rows, 
+                                                ir_frame_buffer->image.step, 
+                                                ir_frame_buffer->image.data, 
+                                                ir_frame_buffer->image.step*ir_frame_buffer->image.rows, 
+                                                nullptr, nullptr); //no copy
+//std::cout << "no copy2" << std::endl;
+
+  return K4A_RESULT_SUCCEEDED;
+}
+
+#endif // #if !defined(NO_DEVICE)  
+
 #if defined(K4A_BODY_TRACKING)
 k4a_result_t K4AROSDevice::getBodyMarker(const k4abt_body_t& body, MarkerPtr marker_msg, geometry_msgs::TransformStamped& transform_msg, int bodyNum, int jointType,
                                          ros::Time capture_time)
@@ -937,6 +1067,8 @@ k4a_result_t K4AROSDevice::renderBodyIndexMapToROS(sensor_msgs::ImagePtr body_in
   body_index_map_image->is_bigendian = false;
   body_index_map_image->step = k4a_body_index_map.get_width_pixels() * sizeof(BodyIndexMapPixel);
 
+  //std::cout << "body_index infos : " << body_index_map_image->height << " " << body_index_map_image->width <<std::endl;
+
   // Enlarge the data buffer in the ROS message to hold the frame
   body_index_map_image->data.resize(body_index_map_image->height * body_index_map_image->step);
 
@@ -962,6 +1094,7 @@ k4a_result_t K4AROSDevice::renderBodyIndexMapToROS(sensor_msgs::ImagePtr body_in
 }
 #endif
 
+#if !defined(NO_DEVICE)  
 void K4AROSDevice::framePublisherThread()
 {
   ros::Rate loop_rate(params_.fps);
@@ -1160,8 +1293,27 @@ void K4AROSDevice::framePublisherThread()
             depth_rect_camera_info.header.stamp = capture_time;
             depth_rect_camerainfo_publisher_.publish(depth_rect_camera_info);
           }
-        }
+        } 
+#else
+// put the double callback (Depth + IR) here 
 
+void K4AROSDevice::callbackIrAndDepth(const sensor_msgs::ImageConstPtr& ir, const sensor_msgs::ImageConstPtr& depth)
+{
+  if(isCameraInfoSetup_)
+  {
+    k4a::capture capture = k4a::capture::create();
+
+    // renderROSToDepth
+    k4a::image k4a_depth_frame;
+    renderROSToDepth(depth, k4a_depth_frame);
+    capture.set_depth_image(k4a_depth_frame);
+
+    // renderROStoIr
+    k4a::image k4a_ir_frame;
+    renderROSToIr(ir, k4a_ir_frame);
+    capture.set_ir_image(k4a_ir_frame);
+
+#endif
 #if defined(K4A_BODY_TRACKING)
         // Publish body markers when body tracking is enabled and a depth image is available
         if (params_.body_tracking_enabled &&  k4abt_tracker_queue_size_ < 3 &&
@@ -1179,6 +1331,7 @@ void K4AROSDevice::framePublisherThread()
           }
         }
 #endif
+#if !defined(NO_DEVICE)  
       }
     }
 
@@ -1316,8 +1469,10 @@ void K4AROSDevice::framePublisherThread()
 
     ros::spinOnce();
     loop_rate.sleep();
+#endif //#else if defined(NO_DEVICE)  
   }
 }
+
 
 #if defined(K4A_BODY_TRACKING)
 void K4AROSDevice::bodyPublisherThread()
@@ -1382,6 +1537,8 @@ void K4AROSDevice::bodyPublisherThread()
             body_index_map_frame->header.frame_id =
                 calibration_data_.tf_prefix_ + calibration_data_.depth_camera_frame_;
 
+          //cv::imwrite("body_index_map_frame.png", cv_bridge::toCvCopy(body_index_map_frame, sensor_msgs::image_encodings::TYPE_8UC1)->image);
+
             body_index_map_publisher_.publish(body_index_map_frame);
           }
         }
@@ -1395,6 +1552,7 @@ void K4AROSDevice::bodyPublisherThread()
 }
 #endif
 
+#if !defined(NO_DEVICE)  
 k4a_imu_sample_t K4AROSDevice::computeMeanIMUSample(const std::vector<k4a_imu_sample_t>& samples)
 {
   // Compute mean sample
@@ -1556,36 +1714,10 @@ std::chrono::microseconds K4AROSDevice::getCaptureTimestamp(const k4a::capture& 
   return std::chrono::microseconds::zero();
 }
 
-// Converts a k4a *device* timestamp to a ros::Time object
-ros::Time K4AROSDevice::timestampToROS(const std::chrono::microseconds& k4a_timestamp_us)
-{
-  // This will give INCORRECT timestamps until the first image.
-  if (device_to_realtime_offset_.count() == 0)
-  {
-    initializeTimestampOffset(k4a_timestamp_us);
-  }
-
-  std::chrono::nanoseconds timestamp_in_realtime = k4a_timestamp_us + device_to_realtime_offset_;
-  ros::Time ros_time;
-  ros_time.fromNSec(timestamp_in_realtime.count());
-  return ros_time;
-}
-
 // Converts a k4a_imu_sample_t timestamp to a ros::Time object
 ros::Time K4AROSDevice::timestampToROS(const uint64_t& k4a_timestamp_us)
 {
   return timestampToROS(std::chrono::microseconds(k4a_timestamp_us));
-}
-
-void K4AROSDevice::initializeTimestampOffset(const std::chrono::microseconds& k4a_device_timestamp_us)
-{
-  // We have no better guess than "now".
-  std::chrono::nanoseconds realtime_clock = std::chrono::system_clock::now().time_since_epoch();
-
-  device_to_realtime_offset_ = realtime_clock - k4a_device_timestamp_us;
-
-  ROS_WARN_STREAM("Initializing the device to realtime offset based on wall clock: "
-                  << device_to_realtime_offset_.count() << " ns");
 }
 
 void K4AROSDevice::updateTimestampOffset(const std::chrono::microseconds& k4a_device_timestamp_us,
@@ -1621,4 +1753,32 @@ void K4AROSDevice::updateTimestampOffset(const std::chrono::microseconds& k4a_de
                                  std::chrono::nanoseconds(static_cast<int64_t>(
                                      std::floor(alpha * (device_to_realtime - device_to_realtime_offset_).count())));
   }
+}
+
+#endif // #if !defined(NO_DEVICE)  
+
+// Converts a k4a *device* timestamp to a ros::Time object
+ros::Time K4AROSDevice::timestampToROS(const std::chrono::microseconds& k4a_timestamp_us)
+{
+  // This will give INCORRECT timestamps until the first image.
+  if (device_to_realtime_offset_.count() == 0)
+  {
+    initializeTimestampOffset(k4a_timestamp_us);
+  }
+
+  std::chrono::nanoseconds timestamp_in_realtime = k4a_timestamp_us + device_to_realtime_offset_;
+  ros::Time ros_time;
+  ros_time.fromNSec(timestamp_in_realtime.count());
+  return ros_time;
+}
+
+void K4AROSDevice::initializeTimestampOffset(const std::chrono::microseconds& k4a_device_timestamp_us)
+{
+  // We have no better guess than "now".
+  std::chrono::nanoseconds realtime_clock = std::chrono::system_clock::now().time_since_epoch();
+
+  device_to_realtime_offset_ = realtime_clock - k4a_device_timestamp_us;
+
+  ROS_WARN_STREAM("Initializing the device to realtime offset based on wall clock: "
+                  << device_to_realtime_offset_.count() << " ns");
 }

@@ -356,3 +356,80 @@ void K4ACalibrationTransformData::getRgbCameraInfo(sensor_msgs::CameraInfo& came
                    0.0f, 0.0f, 1.0f};
   // clang-format on
 }
+
+//added to set the k4a_calibration_ data from Rgb and Depth cameras info, and the tf between cameras (and base and Imu?)
+//void K4ACalibrationTransformData::setFromCameraAndTfInfo(sensor_msgs::CameraInfo& camera_info)
+void K4ACalibrationTransformData::setFromDepthCamera(const sensor_msgs::CameraInfo& depth_camera_info)
+{ 
+  k4a_calibration_.depth_camera_calibration.resolution_width = depth_camera_info.width;
+  k4a_calibration_.depth_camera_calibration.resolution_height= depth_camera_info.height;
+
+  //camera distorsion model is assumed to be sensor_msgs::distortion_models::RATIONAL_POLYNOMIAL
+  k4a_calibration_.depth_camera_calibration.intrinsics.type = K4A_CALIBRATION_LENS_DISTORTION_MODEL_BROWN_CONRADY;
+  k4a_calibration_.depth_camera_calibration.metric_radius = 1.7399998;
+  k4a_calibration_intrinsic_parameters_t* parameters = &k4a_calibration_.depth_camera_calibration.intrinsics.parameters;
+  // The distortion parameters, size depending on the distortion model.
+  // For "rational_polynomial", the 8 parameters are: (k1, k2, p1, p2, k3, k4, k5, k6).
+  parameters->param.k1 = depth_camera_info.D[0];
+  parameters->param.k2 = depth_camera_info.D[1];
+  parameters->param.p1 = depth_camera_info.D[2];
+  parameters->param.p2 = depth_camera_info.D[3];
+  parameters->param.k3 = depth_camera_info.D[4];
+  parameters->param.k4 = depth_camera_info.D[5];
+  parameters->param.k5 = depth_camera_info.D[6];
+  parameters->param.k6 = depth_camera_info.D[7];
+
+  // clang-format off
+  // Intrinsic camera matrix for the raw (distorted) images.
+  //     [fx  0 cx]
+  // K = [ 0 fy cy]
+  //     [ 0  0  1]
+  // Projects 3D points in the camera coordinate frame to 2D pixel
+  // coordinates using the focal lengths (fx, fy) and principal point
+  // (cx, cy).
+  parameters->param.fx = depth_camera_info.K[0];
+  parameters->param.fy = depth_camera_info.K[4];
+  parameters->param.cx = depth_camera_info.K[2];
+  parameters->param.cy = depth_camera_info.K[5];
+
+  tf_prefix_ = "";
+  depth_camera_frame_ = depth_camera_info.header.frame_id;
+
+  float v[15] = {
+        parameters->param.cx,
+        parameters->param.cy,
+        parameters->param.fx,
+        parameters->param.fy,
+        parameters->param.k1,
+        parameters->param.k2,
+        parameters->param.k3,
+        parameters->param.k4,
+        parameters->param.k5,
+        parameters->param.k6,
+        0.f,
+        0.f,
+        parameters->param.p2,
+        parameters->param.p1,
+        0.f
+    };
+
+    std::copy(std::begin(v), std::end(v), std::begin(parameters->v));
+
+    k4a_calibration_.depth_camera_calibration.intrinsics.parameter_count = 14;
+
+    k4a_calibration_.depth_camera_calibration.extrinsics.rotation[0] = 1;
+    k4a_calibration_.depth_camera_calibration.extrinsics.rotation[1] = 0;
+    k4a_calibration_.depth_camera_calibration.extrinsics.rotation[2] = 0;
+    k4a_calibration_.depth_camera_calibration.extrinsics.rotation[3] = 0;
+    k4a_calibration_.depth_camera_calibration.extrinsics.rotation[4] = 1;
+    k4a_calibration_.depth_camera_calibration.extrinsics.rotation[5] = 0;
+    k4a_calibration_.depth_camera_calibration.extrinsics.rotation[6] = 0;
+    k4a_calibration_.depth_camera_calibration.extrinsics.rotation[7] = 0;
+    k4a_calibration_.depth_camera_calibration.extrinsics.rotation[8] = 1;
+
+    k4a_calibration_.depth_camera_calibration.extrinsics.translation[0] = 0;
+    k4a_calibration_.depth_camera_calibration.extrinsics.translation[1] = 0;
+    k4a_calibration_.depth_camera_calibration.extrinsics.translation[2] = 0;
+  
+  // clang-format on
+}

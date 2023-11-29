@@ -21,6 +21,7 @@ int main(int argc, char** argv)
   // Setup the K4A device
   std::shared_ptr<K4AROSDevice> device(new K4AROSDevice);
 
+#if !defined(NO_DEVICE)
   k4a_result_t result = device->startCameras();
 
   if (result != K4A_RESULT_SUCCEEDED)
@@ -37,6 +38,9 @@ int main(int argc, char** argv)
   }
 
   ROS_INFO("K4A Started");
+#else
+  k4a_result_t result = K4A_RESULT_SUCCEEDED;
+#endif
 
   if (result == K4A_RESULT_SUCCEEDED)
   {

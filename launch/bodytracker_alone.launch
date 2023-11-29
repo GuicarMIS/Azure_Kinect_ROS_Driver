@@ -1,0 +1,11 @@
+
+
+<launch>
+      <node pkg="azure_kinect_ros_driver" type="nodevice_node" name="" output="screen" launch-prefix="$(find azure_kinect_ros_driver)/launch/ir_png.sh">
+        <param name="body_tracking_enabled"           type="bool"   value="true" />
+        <param name="IrTopic" type="string" value="/ir"/> 
+        <param name="depthTopic" type="string" value="/depth"/> 
+        
+        <param name="image_transport" type="string" value="compressed"/>  
+     </node>
+</launch>

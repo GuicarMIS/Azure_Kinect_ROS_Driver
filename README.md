@@ -6,7 +6,7 @@ This repository uses the [Azure Kinect Sensor SDK](https://github.com/microsoft/
 
 [![Build Status](https://dev.azure.com/ms/Azure_Kinect_ROS_Driver/_apis/build/status/microsoft.Azure_Kinect_ROS_Driver?branchName=melodic)](https://dev.azure.com/ms/Azure_Kinect_ROS_Driver/_build/latest?definitionId=166&branchName=melodic)
 
-## Features
+## Original Features
 
 This ROS node outputs a variety of sensor data, including:
 
@@ -22,6 +22,10 @@ The camera is fully configurable using a variety of options which can be specifi
 However, this node does ***not*** expose all the sensor data from the Azure Kinect Developer Kit hardware. It does not provide access to:
 
 - Microphone array
+
+## Extended Features
+
+Thanks to the work of CNRS-AIST JRL, IRL, the orignal capability of the azure_kinect_ros_driver to run the body tracking (`lib4abt` mandatory), can now be run in a separate node `nodevice_node` that does not require an Azure Kinect camera connected but rather subscribes to depth an ir topics. 
 
 For more information about how to use the node, please see the [usage guide](docs/usage.md).
 

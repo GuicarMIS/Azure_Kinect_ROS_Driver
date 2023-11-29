@@ -4,9 +4,11 @@ The Azure Kinect ROS Driver node exposes Azure Kinect DK sensor streams to ROS.
 
 ## Starting the Driver
 
-The ROS package contains two main launch files to start the driver:
+The original ROS package contains two main launch files to start the driver:
 - `driver.launch` starts the driver as a separate node which publishes the raw images and the factory calibration. **The published images are not rectified.**
 - `kinect_rgbd.launch` starts the driver as a nodelet in a nodelet manager and starts the RGB-D processing from `rgbd_launch` which will load additional nodelets for image rectification and registration. This will publish raw (unrectified) as well as rectified images.
+
+Thanks to the work of CNRS-AIST JRL, IRL, the extended ROS package contains one more launch file to start the body tracker with the nodevice_node: `bodytracker_alone.launch` starts the subscription to ir (16 bits) and depth (16 bits) image topics as well as the depth camera info to retrieve the camera parameters. **to deal with the 16 bits compressed ir image, the script ir_png.sh runs the compression format change from jpeg (default) to png (can deal with 16-bit images).**
 
 ## Setup and Building
 

@@ -38,6 +38,8 @@ public:
   void getRgbCameraInfo(sensor_msgs::CameraInfo& camera_info);
   void print();
 
+  void setFromDepthCamera(const sensor_msgs::CameraInfo& depth_camera_info);
+
   k4a::calibration k4a_calibration_;
   k4a::transformation k4a_transformation_;
 

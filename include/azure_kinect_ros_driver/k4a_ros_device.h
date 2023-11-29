@@ -37,6 +37,14 @@
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #endif
 
+#if defined(NO_DEVICE)
+#include <message_filters/subscriber.h>
+#include <message_filters/synchronizer.h>
+#include <message_filters/sync_policies/approximate_time.h>
+#include <image_transport/subscriber_filter.h>
+#include <cv_bridge/cv_bridge.h>
+#endif
+
 // Project headers
 //
 #include "azure_kinect_ros_driver/k4a_calibration_transform_data.h"
@@ -165,11 +173,38 @@ k4a_result_t getBodyMarker(const k4abt_body_t& body, visualization_msgs::MarkerP
   std::string serial_number_;
 
   // K4A device
+#if !defined(NO_DEVICE)  
   k4a::device k4a_device_;
+#else
+  //added to unable body tracking from topics
+  image_transport::SubscriberFilter subIr_;
+  image_transport::SubscriberFilter subDepth_;
+  typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::Image> ImagePolicy;
+  message_filters::Synchronizer<ImagePolicy> syncImage_;
+
+  message_filters::Subscriber<sensor_msgs::CameraInfo> subDepthCameraInfoTopic_;
+
+  bool isCameraInfoSetup_;
+  std::string IrTopic_;
+  std::string depthTopic_;
+  std::mutex mutex_;
+
+  cv_bridge::CvImagePtr depth_frame_buffer;
+  cv_bridge::CvImagePtr ir_frame_buffer;
+
+  k4a_result_t callbackCameraInfo(const sensor_msgs::CameraInfoConstPtr & depth_camera_info);
+  void callbackIrAndDepth(const sensor_msgs::ImageConstPtr& ir, const sensor_msgs::ImageConstPtr& depth);
+
+  k4a_result_t renderROSToIr(const sensor_msgs::ImageConstPtr& ir_image, k4a::image& k4a_ir_frame);
+  k4a_result_t renderROSToDepth(const sensor_msgs::ImageConstPtr& depth_image, k4a::image& k4a_depth_frame);
+
+#endif
   K4ACalibrationTransformData calibration_data_;
 
   // K4A Recording
+#if !defined(NO_DEVICE)  
   k4a::playback k4a_playback_handle_;
+#endif
   std::mutex k4a_playback_handle_mutex_;
 
 #if defined(K4A_BODY_TRACKING)

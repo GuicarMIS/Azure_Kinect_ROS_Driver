@@ -61,6 +61,15 @@ add_executable(${PROJECT_NAME}_node
 
 target_compile_features(${PROJECT_NAME}_node PUBLIC cxx_std_11)
 
+add_executable(${PROJECT_NAME}_nodevice_node
+  src/k4a_ros_bridge_node.cpp
+  src/k4a_ros_device.cpp
+  src/k4a_ros_device_params.cpp
+  src/k4a_calibration_transform_data.cpp
+  )
+
+target_compile_features(${PROJECT_NAME}_nodevice_node PUBLIC cxx_std_11)
+
 add_library(${PROJECT_NAME}_nodelet
   src/k4a_ros_bridge_nodelet.cpp
   src/k4a_ros_device.cpp
@@ -75,6 +84,7 @@ target_compile_features(${PROJECT_NAME}_nodelet PUBLIC cxx_std_11)
 ## target back to the shorter version for ease of user use
 ## e.g. "rosrun someones_pkg node" instead of "rosrun someones_pkg someones_pkg_node"
 set_target_properties(${PROJECT_NAME}_node PROPERTIES OUTPUT_NAME node PREFIX "")
+set_target_properties(${PROJECT_NAME}_nodevice_node PROPERTIES OUTPUT_NAME nodevice_node PREFIX "")
 
 ############################
 #### AZURE KINECT SDK ######
@@ -101,6 +111,7 @@ if (k4abt_FOUND)
   list(APPEND K4A_LIBS k4abt::k4abt)
   message(STATUS "Body Tracking SDK found: compiling support for Body Tracking")
   target_compile_definitions(${PROJECT_NAME}_node PUBLIC K4A_BODY_TRACKING)
+  target_compile_definitions(${PROJECT_NAME}_nodevice_node PUBLIC K4A_BODY_TRACKING NO_DEVICE)
   target_compile_definitions(${PROJECT_NAME}_nodelet PUBLIC K4A_BODY_TRACKING)
   message(STATUS "!!! Body Tracking SDK found: body tracking features will be available !!!")
 else()
@@ -156,6 +167,7 @@ if(MSVC AND NOT k4abt_FOUND)
       set(k4abt_VERSION "1.0.1")
       list(APPEND K4A_LIBS k4abt::k4abt)
       target_compile_definitions(${PROJECT_NAME}_node PUBLIC K4A_BODY_TRACKING)
+      target_compile_definitions(${PROJECT_NAME}_nodevice_node PUBLIC K4A_BODY_TRACKING NO_DEVICE)
       target_compile_definitions(${PROJECT_NAME}_nodelet PUBLIC K4A_BODY_TRACKING)
 
       set(KBT_DEPENDENCIES "Microsoft.Azure.Kinect.BodyTracking.Dependencies.0.9.1")
@@ -226,6 +238,12 @@ target_link_libraries(${PROJECT_NAME}_node
   ${OpenCV_LIBS}
 )
 
+target_link_libraries(${PROJECT_NAME}_nodevice_node
+  ${K4A_LIBS}
+  ${catkin_LIBRARIES}
+  ${OpenCV_LIBS}
+)
+
 target_link_libraries(${PROJECT_NAME}_nodelet
   ${K4A_LIBS}
   ${catkin_LIBRARIES}
@@ -241,6 +259,12 @@ target_link_libraries(${PROJECT_NAME}_nodelet
 
 ## Mark executables and/or libraries for installation
 install(TARGETS ${PROJECT_NAME}_node
+  ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+  LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
+install(TARGETS ${PROJECT_NAME}_nodevice_node
   ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
