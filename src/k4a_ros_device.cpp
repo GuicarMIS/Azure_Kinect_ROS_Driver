@@ -1301,6 +1301,8 @@ void K4AROSDevice::callbackIrAndDepth(const sensor_msgs::ImageConstPtr& ir, cons
 {
   if(isCameraInfoSetup_)
   {
+    timeInput_ = ir->header.stamp;
+
     k4a::capture capture = k4a::capture::create();
 
     // renderROSToDepth
@@ -1492,8 +1494,11 @@ void K4AROSDevice::bodyPublisherThread()
       }
       else
       {
+#if !defined(NO_DEVICE)
         auto capture_time = timestampToROS(body_frame.get_device_timestamp());
-
+#else
+        auto capture_time = timeInput_;
+#endif
         if (body_marker_publisher_.getNumSubscribers() > 0)
         {
           // Joint marker array

@@ -198,6 +198,7 @@ k4a_result_t getBodyMarker(const k4abt_body_t& body, visualization_msgs::MarkerP
   k4a_result_t renderROSToIr(const sensor_msgs::ImageConstPtr& ir_image, k4a::image& k4a_ir_frame);
   k4a_result_t renderROSToDepth(const sensor_msgs::ImageConstPtr& depth_image, k4a::image& k4a_depth_frame);
 
+  ros::Time timeInput_;
 #endif
   K4ACalibrationTransformData calibration_data_;
 
